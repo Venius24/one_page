@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Покупки из Китая</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f7f9;
+    --card: #ffffff;
+    --text: #1c1c1e;
+    --muted: #8a8a8e;
+    --border: #e2e2e6;
+    --accent: #d92c27;
+    --accent2: #2c7be5;
+    --done-bg: #eef0ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181a;
+      --card: #232426;
+      --text: #f0f0f2;
+      --muted: #9a9a9e;
+      --border: #333437;
+      --done-bg: #1b1c1e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 20px;
+    margin: 12px 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .rate-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .rate-box input {
+    width: 70px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 6px;
+    background: transparent;
+    color: var(--text);
+    font-size: 13px;
+  }
+  .add-form {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 18px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .row2 {
+    display: grid;
+    grid-template-columns: 1fr 90px 70px;
+    gap: 8px;
+  }
+  .add-form input, .add-form select {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 14px;
+    background: var(--bg);
+    color: var(--text);
+    width: 100%;
+  }
+  .priority-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .priority-row input[type=range] { flex: 1; }
+  .priority-val {
+    min-width: 26px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .btn-add {
+    background: var(--accent2);
+    color: white;
+    padding: 10px;
+  }
+  ul.items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  li.item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  li.item.done {
+    background: var(--done-bg);
+    opacity: 0.6;
+  }
+  li.item.done .name {
+    text-decoration: line-through;
+  }
+  .check {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    accent-color: var(--accent2);
+  }
+  .info {
+    flex: 1;
+    min-width: 0;
+  }
+  .name {
+    font-size: 15px;
+    font-weight: 500;
+    overflow-wrap: break-word;
+  }
+  .prices {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .prio {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: white;
+    flex-shrink: 0;
+    min-width: 24px;
+    text-align: center;
+  }
+  .prio.low { background: #8a8a8e; }
+  .prio.mid { background: #e0a800; }
+  .del {
+    background: transparent;
+    color: var(--muted);
+    font-size: 18px;
+    padding: 2px 6px;
+    flex-shrink: 0;
+  }
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+    padding: 30px 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>🛒 Покупки из Китая</h1>
+
+<div class="rate-box">
+  <span>Курс:</span> 1 CNY =
+  <input type="number" id="rate" step="0.01" min="0.01">
+  KZT
+</div>
+
+<div class="add-form">
+  <input type="text" id="name" placeholder="Название товара">
+  <div class="row2">
+    <input type="number" id="price" step="0.01" min="0" placeholder="Цена">
+    <select id="currency">
+      <option value="CNY">CNY ¥</option>
+      <option value="KZT">KZT ₸</option>
+    </select>
+    <button class="btn-add" id="addBtn">+</button>
+  </div>
+  <div class="priority-row">
+    <span style="font-size:13px;color:var(--muted)">Важность</span>
+    <input type="range" id="priority" min="0" max="10" value="5">
+    <span class="priority-val" id="priorityVal">5</span>
+  </div>
+</div>
+
+<ul class="items" id="list"></ul>
+<div class="empty" id="emptyMsg" style="display:none">Список пуст</div>
+
+<script>
+const STORAGE_KEY = 'buy_calculate_items';
+const RATE_KEY = 'buy_calculate_rate';
+const DEFAULT_RATE = 74; // 1 CNY ≈ 74 KZT, edit as needed
+
+let items = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+let rate = parseFloat(localStorage.getItem(RATE_KEY)) || DEFAULT_RATE;
+
+const rateInput = document.getElementById('rate');
+const listEl = document.getElementById('list');
+const emptyMsg = document.getElementById('emptyMsg');
+const nameInput = document.getElementById('name');
+const priceInput = document.getElementById('price');
+const currencyInput = document.getElementById('currency');
+const priorityInput = document.getElementById('priority');
+const priorityVal = document.getElementById('priorityVal');
+const addBtn = document.getElementById('addBtn');
+
+rateInput.value = rate;
+
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+}
+
+function fmt(n) {
+  return n.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+}
+
+function convert(item) {
+  if (item.currency === 'CNY') {
+    return { cny: item.price, kzt: item.price * rate };
+  } else {
+    return { cny: item.price / rate, kzt: item.price };
+  }
+}
+
+function prioClass(p) {
+  if (p <= 3) return 'low';
+  if (p <= 6) return 'mid';
+  return '';
+}
+
+function render() {
+  const sorted = [...items].sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return b.priority - a.priority;
+  });
+
+  listEl.innerHTML = '';
+  emptyMsg.style.display = sorted.length ? 'none' : 'block';
+
+  for (const item of sorted) {
+    const { cny, kzt } = convert(item);
+    const li = document.createElement('li');
+    li.className = 'item' + (item.done ? ' done' : '');
+
+    li.innerHTML = `
+      <input type="checkbox" class="check" ${item.done ? 'checked' : ''}>
+      <div class="info">
+        <div class="name">${escapeHtml(item.name)}</div>
+        <div class="prices">¥${fmt(cny)} · ₸${fmt(kzt)}</div>
+      </div>
+      <div class="prio ${prioClass(item.priority)}">${item.priority}</div>
+      <button class="del">×</button>
+    `;
+
+    li.querySelector('.check').addEventListener('change', () => {
+      item.done = !item.done;
+      save();
+      render();
+    });
+    li.querySelector('.del').addEventListener('click', () => {
+      items = items.filter(i => i.id !== item.id);
+      save();
+      render();
+    });
+
+    listEl.appendChild(li);
+  }
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+priorityInput.addEventListener('input', () => {
+  priorityVal.textContent = priorityInput.value;
+});
+
+rateInput.addEventListener('change', () => {
+  const v = parseFloat(rateInput.value);
+  if (v > 0) {
+    rate = v;
+    localStorage.setItem(RATE_KEY, rate);
+    render();
+  }
+});
+
+addBtn.addEventListener('click', () => {
+  const name = nameInput.value.trim();
+  const price = parseFloat(priceInput.value);
+  if (!name || !(price > 0)) return;
+
+  items.push({
+    id: Date.now() + Math.random(),
+    name,
+    price,
+    currency: currencyInput.value,
+    priority: parseInt(priorityInput.value, 10),
+    done: false
+  });
+  save();
+  render();
+
+  nameInput.value = '';
+  priceInput.value = '';
+  priorityInput.value = 5;
+  priorityVal.textContent = 5;
+  nameInput.focus();
+});
+
+nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') priceInput.focus(); });
+priceInput.addEventListener('keydown', e => { if (e.key === 'Enter') addBtn.click(); });
+
+render();
+</script>
+
+</body>
+</html>
