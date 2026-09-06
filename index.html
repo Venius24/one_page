@@ -15,6 +15,8 @@
     --accent: #d92c27;
     --accent2: #2c7be5;
     --done-bg: #eef0ee;
+    --pin-bg: #fff8e1;
+    --pin-border: #e0a800;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -24,6 +26,8 @@
       --muted: #9a9a9e;
       --border: #333437;
       --done-bg: #1b1c1e;
+      --pin-bg: #2e2712;
+      --pin-border: #e0a800;
     }
   }
   * { box-sizing: border-box; }
@@ -73,6 +77,38 @@
     display: grid;
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+  .add-form.editing {
+    border-color: var(--accent2);
+  }
+  .add-form-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .add-form-actions .btn-add { flex: 1; }
+  .btn-cancel {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 10px 14px;
+  }
+  .sort-toggle {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .sort-toggle button {
+    flex: 1;
+    padding: 8px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .sort-toggle button.active {
+    background: var(--accent2);
+    color: white;
+    border-color: var(--accent2);
   }
   .row2 {
     display: grid;
@@ -136,6 +172,22 @@
   li.item.done .name {
     text-decoration: line-through;
   }
+  li.item.pinned {
+    background: var(--pin-bg);
+    border-color: var(--pin-border);
+  }
+  li.item.dragover {
+    border-color: var(--accent2);
+    border-style: dashed;
+  }
+  .handle {
+    cursor: grab;
+    color: var(--muted);
+    font-size: 16px;
+    flex-shrink: 0;
+    touch-action: none;
+    user-select: none;
+  }
   .check {
     width: 20px;
     height: 20px;
@@ -169,13 +221,18 @@
   }
   .prio.low { background: #8a8a8e; }
   .prio.mid { background: #e0a800; }
-  .del {
+  .icon-btn {
     background: transparent;
     color: var(--muted);
-    font-size: 18px;
+    font-size: 16px;
     padding: 2px 6px;
     flex-shrink: 0;
+    line-height: 1;
   }
+  .icon-btn.pin.active {
+    color: var(--pin-border);
+  }
+  .del { font-size: 18px; }
   .empty {
     text-align: center;
     color: var(--muted);
@@ -194,7 +251,7 @@
   KZT
 </div>
 
-<div class="add-form">
+<div class="add-form" id="addForm">
   <input type="text" id="name" placeholder="Название товара">
   <div class="row2">
     <input type="number" id="price" step="0.01" min="0" placeholder="Цена">
@@ -209,6 +266,14 @@
     <input type="range" id="priority" min="0" max="10" value="5">
     <span class="priority-val" id="priorityVal">5</span>
   </div>
+  <div class="add-form-actions" id="editActions" style="display:none">
+    <button class="btn-cancel" id="cancelBtn">Отмена</button>
+  </div>
+</div>
+
+<div class="sort-toggle">
+  <button id="sortByPriority" class="active">По важности</button>
+  <button id="sortByManual">Вручную (перетаскивание)</button>
 </div>
 
 <ul class="items" id="list"></ul>
@@ -217,25 +282,45 @@
 <script>
 const STORAGE_KEY = 'buy_calculate_items';
 const RATE_KEY = 'buy_calculate_rate';
+const SORT_KEY = 'buy_calculate_sort';
 const DEFAULT_RATE = 74; // 1 CNY ≈ 74 KZT, edit as needed
 
 let items = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
 let rate = parseFloat(localStorage.getItem(RATE_KEY)) || DEFAULT_RATE;
+let sortMode = localStorage.getItem(SORT_KEY) === 'manual' ? 'manual' : 'priority';
+let editingId = null;
+let draggedId = null;
+
+// migrate old items that predate order/pinned fields
+items.forEach((it, idx) => {
+  if (typeof it.order !== 'number') it.order = idx;
+  if (typeof it.pinned !== 'boolean') it.pinned = false;
+});
 
 const rateInput = document.getElementById('rate');
 const listEl = document.getElementById('list');
 const emptyMsg = document.getElementById('emptyMsg');
+const addForm = document.getElementById('addForm');
 const nameInput = document.getElementById('name');
 const priceInput = document.getElementById('price');
 const currencyInput = document.getElementById('currency');
 const priorityInput = document.getElementById('priority');
 const priorityVal = document.getElementById('priorityVal');
 const addBtn = document.getElementById('addBtn');
+const editActions = document.getElementById('editActions');
+const cancelBtn = document.getElementById('cancelBtn');
+const sortByPriorityBtn = document.getElementById('sortByPriority');
+const sortByManualBtn = document.getElementById('sortByManual');
 
 rateInput.value = rate;
+updateSortButtons();
 
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+}
+
+function nextOrder() {
+  return items.reduce((max, it) => Math.max(max, it.order), -1) + 1;
 }
 
 function fmt(n) {
@@ -256,11 +341,24 @@ function prioClass(p) {
   return '';
 }
 
-function render() {
-  const sorted = [...items].sort((a, b) => {
+function updateSortButtons() {
+  sortByPriorityBtn.classList.toggle('active', sortMode === 'priority');
+  sortByManualBtn.classList.toggle('active', sortMode === 'manual');
+}
+
+function sortedItems() {
+  return [...items].sort((a, b) => {
     if (a.done !== b.done) return a.done ? 1 : -1;
-    return b.priority - a.priority;
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    if (sortMode === 'priority' && a.priority !== b.priority) {
+      return b.priority - a.priority;
+    }
+    return a.order - b.order;
   });
+}
+
+function render() {
+  const sorted = sortedItems();
 
   listEl.innerHTML = '';
   emptyMsg.style.display = sorted.length ? 'none' : 'block';
@@ -268,16 +366,23 @@ function render() {
   for (const item of sorted) {
     const { cny, kzt } = convert(item);
     const li = document.createElement('li');
-    li.className = 'item' + (item.done ? ' done' : '');
+    li.className = 'item'
+      + (item.done ? ' done' : '')
+      + (item.pinned ? ' pinned' : '');
+    li.draggable = sortMode === 'manual' && !item.done;
+    li.dataset.id = item.id;
 
     li.innerHTML = `
+      <span class="handle" title="Перетащить">${sortMode === 'manual' ? '⠿' : ''}</span>
       <input type="checkbox" class="check" ${item.done ? 'checked' : ''}>
       <div class="info">
         <div class="name">${escapeHtml(item.name)}</div>
         <div class="prices">¥${fmt(cny)} · ₸${fmt(kzt)}</div>
       </div>
       <div class="prio ${prioClass(item.priority)}">${item.priority}</div>
-      <button class="del">×</button>
+      <button class="icon-btn pin${item.pinned ? ' active' : ''}" title="Не выкидывать">📌</button>
+      <button class="icon-btn edit" title="Редактировать">✎</button>
+      <button class="icon-btn del" title="Удалить">×</button>
     `;
 
     li.querySelector('.check').addEventListener('change', () => {
@@ -285,8 +390,36 @@ function render() {
       save();
       render();
     });
+    li.querySelector('.pin').addEventListener('click', () => {
+      item.pinned = !item.pinned;
+      save();
+      render();
+    });
+    li.querySelector('.edit').addEventListener('click', () => startEdit(item.id));
     li.querySelector('.del').addEventListener('click', () => {
       items = items.filter(i => i.id !== item.id);
+      if (editingId === item.id) cancelEdit();
+      save();
+      render();
+    });
+
+    li.addEventListener('dragstart', () => { draggedId = item.id; });
+    li.addEventListener('dragover', e => {
+      if (sortMode !== 'manual') return;
+      e.preventDefault();
+      li.classList.add('dragover');
+    });
+    li.addEventListener('dragleave', () => li.classList.remove('dragover'));
+    li.addEventListener('drop', e => {
+      e.preventDefault();
+      li.classList.remove('dragover');
+      if (sortMode !== 'manual' || draggedId === null || draggedId === item.id) return;
+      const fromIdx = items.findIndex(i => i.id === draggedId);
+      const toIdx = items.findIndex(i => i.id === item.id);
+      const [moved] = items.splice(fromIdx, 1);
+      items.splice(toIdx, 0, moved);
+      items.forEach((it, idx) => { it.order = idx; });
+      draggedId = null;
       save();
       render();
     });
@@ -301,6 +434,34 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+function startEdit(id) {
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+  editingId = id;
+  nameInput.value = item.name;
+  priceInput.value = item.price;
+  currencyInput.value = item.currency;
+  priorityInput.value = item.priority;
+  priorityVal.textContent = item.priority;
+  addBtn.textContent = 'Сохранить';
+  addForm.classList.add('editing');
+  editActions.style.display = 'flex';
+  nameInput.focus();
+}
+
+function cancelEdit() {
+  editingId = null;
+  nameInput.value = '';
+  priceInput.value = '';
+  priorityInput.value = 5;
+  priorityVal.textContent = 5;
+  addBtn.textContent = '+';
+  addForm.classList.remove('editing');
+  editActions.style.display = 'none';
+}
+
+cancelBtn.addEventListener('click', cancelEdit);
+
 priorityInput.addEventListener('input', () => {
   priorityVal.textContent = priorityInput.value;
 });
@@ -314,27 +475,52 @@ rateInput.addEventListener('change', () => {
   }
 });
 
+sortByPriorityBtn.addEventListener('click', () => {
+  sortMode = 'priority';
+  localStorage.setItem(SORT_KEY, sortMode);
+  updateSortButtons();
+  render();
+});
+sortByManualBtn.addEventListener('click', () => {
+  sortMode = 'manual';
+  localStorage.setItem(SORT_KEY, sortMode);
+  updateSortButtons();
+  render();
+});
+
 addBtn.addEventListener('click', () => {
   const name = nameInput.value.trim();
   const price = parseFloat(priceInput.value);
   if (!name || !(price > 0)) return;
 
-  items.push({
-    id: Date.now() + Math.random(),
-    name,
-    price,
-    currency: currencyInput.value,
-    priority: parseInt(priorityInput.value, 10),
-    done: false
-  });
+  if (editingId !== null) {
+    const item = items.find(i => i.id === editingId);
+    if (item) {
+      item.name = name;
+      item.price = price;
+      item.currency = currencyInput.value;
+      item.priority = parseInt(priorityInput.value, 10);
+    }
+    cancelEdit();
+  } else {
+    items.push({
+      id: Date.now() + Math.random(),
+      name,
+      price,
+      currency: currencyInput.value,
+      priority: parseInt(priorityInput.value, 10),
+      done: false,
+      pinned: false,
+      order: nextOrder()
+    });
+    nameInput.value = '';
+    priceInput.value = '';
+    priorityInput.value = 5;
+    priorityVal.textContent = 5;
+    nameInput.focus();
+  }
   save();
   render();
-
-  nameInput.value = '';
-  priceInput.value = '';
-  priorityInput.value = 5;
-  priorityVal.textContent = 5;
-  nameInput.focus();
 });
 
 nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') priceInput.focus(); });
