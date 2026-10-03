@@ -233,6 +233,10 @@
     color: var(--pin-border);
   }
   .del { font-size: 18px; }
+  .move-controls { display: flex; flex-direction: column; gap: 2px; }
+  .move-controls button { font-size: 12px; }
+  .move-controls button:disabled { opacity: 0.35; cursor: default; }
+  .status { color: var(--accent); font-size: 13px; min-height: 1.2em; margin: 6px 0; }
   .empty {
     text-align: center;
     color: var(--muted);
@@ -246,38 +250,39 @@
 <h1>🛒 Покупки из Китая</h1>
 
 <div class="rate-box">
-  <span>Курс:</span> 1 CNY =
-  <input type="number" id="rate" step="0.01" min="0.01">
-  KZT
+  <label for="rate">Курс: 1 CNY =</label>
+  <input type="number" id="rate" step="any" min="0.000001" inputmode="decimal" required aria-describedby="rateUnit">
+  <span id="rateUnit">KZT</span>
 </div>
 
-<div class="add-form" id="addForm">
-  <input type="text" id="name" placeholder="Название товара">
+<form class="add-form" id="addForm">
+  <input type="text" id="name" placeholder="Название товара" aria-label="Название товара" required>
   <div class="row2">
-    <input type="number" id="price" step="0.01" min="0" placeholder="Цена">
-    <select id="currency">
+    <input type="number" id="price" step="any" min="0.000001" inputmode="decimal" placeholder="Цена" aria-label="Цена" required>
+    <select id="currency" aria-label="Валюта цены">
       <option value="CNY">CNY ¥</option>
       <option value="KZT">KZT ₸</option>
     </select>
-    <button class="btn-add" id="addBtn">+</button>
+    <button class="btn-add" id="addBtn" type="submit" aria-label="Добавить товар">+</button>
   </div>
   <div class="priority-row">
-    <span style="font-size:13px;color:var(--muted)">Важность</span>
+    <label for="priority" style="font-size:13px;color:var(--muted)">Важность</label>
     <input type="range" id="priority" min="0" max="10" value="5">
     <span class="priority-val" id="priorityVal">5</span>
   </div>
   <div class="add-form-actions" id="editActions" style="display:none">
-    <button class="btn-cancel" id="cancelBtn">Отмена</button>
+    <button class="btn-cancel" id="cancelBtn" type="button">Отмена</button>
   </div>
-</div>
+</form>
 
-<div class="sort-toggle">
-  <button id="sortByPriority" class="active">По важности</button>
-  <button id="sortByManual">Вручную (перетаскивание)</button>
+<div class="sort-toggle" role="group" aria-label="Порядок списка">
+  <button id="sortByPriority" class="active" type="button">По важности</button>
+  <button id="sortByManual" type="button">Вручную (перетаскивание)</button>
 </div>
 
 <ul class="items" id="list"></ul>
 <div class="empty" id="emptyMsg" style="display:none">Список пуст</div>
+<div class="status" id="status" role="status" aria-live="polite"></div>
 
 <script>
 const STORAGE_KEY = 'buy_calculate_items';
@@ -285,17 +290,48 @@ const RATE_KEY = 'buy_calculate_rate';
 const SORT_KEY = 'buy_calculate_sort';
 const DEFAULT_RATE = 74; // 1 CNY ≈ 74 KZT, edit as needed
 
-let items = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-let rate = parseFloat(localStorage.getItem(RATE_KEY)) || DEFAULT_RATE;
-let sortMode = localStorage.getItem(SORT_KEY) === 'manual' ? 'manual' : 'priority';
+function readStorage(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function writeStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    document.getElementById('status').textContent = 'Не удалось сохранить изменения в этом браузере.';
+    return false;
+  }
+}
+
+function validNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function loadItems() {
+  try {
+    const parsed = JSON.parse(readStorage(STORAGE_KEY) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(it => it && typeof it === 'object'
+      && (typeof it.id === 'number' || typeof it.id === 'string')
+      && typeof it.name === 'string' && it.name.trim()
+      && validNumber(it.price) !== null
+      && (it.currency === 'CNY' || it.currency === 'KZT'))
+      .map((it, idx) => ({
+        id: it.id, name: it.name, price: Number(it.price), currency: it.currency,
+        priority: Number.isInteger(Number(it.priority)) ? Math.min(10, Math.max(0, Number(it.priority))) : 5,
+        done: it.done === true, pinned: it.pinned === true,
+        order: Number.isFinite(it.order) ? it.order : idx
+      }));
+  } catch { return []; }
+}
+
+let items = loadItems();
+let rate = validNumber(readStorage(RATE_KEY)) || DEFAULT_RATE;
+let sortMode = readStorage(SORT_KEY) === 'manual' ? 'manual' : 'priority';
 let editingId = null;
 let draggedId = null;
-
-// migrate old items that predate order/pinned fields
-items.forEach((it, idx) => {
-  if (typeof it.order !== 'number') it.order = idx;
-  if (typeof it.pinned !== 'boolean') it.pinned = false;
-});
 
 const rateInput = document.getElementById('rate');
 const listEl = document.getElementById('list');
@@ -316,7 +352,7 @@ rateInput.value = rate;
 updateSortButtons();
 
 function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  writeStorage(STORAGE_KEY, JSON.stringify(items));
 }
 
 function nextOrder() {
@@ -344,6 +380,8 @@ function prioClass(p) {
 function updateSortButtons() {
   sortByPriorityBtn.classList.toggle('active', sortMode === 'priority');
   sortByManualBtn.classList.toggle('active', sortMode === 'manual');
+  sortByPriorityBtn.setAttribute('aria-pressed', sortMode === 'priority');
+  sortByManualBtn.setAttribute('aria-pressed', sortMode === 'manual');
 }
 
 function sortedItems() {
@@ -363,27 +401,37 @@ function render() {
   listEl.innerHTML = '';
   emptyMsg.style.display = sorted.length ? 'none' : 'block';
 
-  for (const item of sorted) {
+  for (const [index, item] of sorted.entries()) {
     const { cny, kzt } = convert(item);
     const li = document.createElement('li');
     li.className = 'item'
       + (item.done ? ' done' : '')
       + (item.pinned ? ' pinned' : '');
-    li.draggable = sortMode === 'manual' && !item.done;
+    li.draggable = sortMode === 'manual';
     li.dataset.id = item.id;
 
     li.innerHTML = `
-      <span class="handle" title="Перетащить">${sortMode === 'manual' ? '⠿' : ''}</span>
-      <input type="checkbox" class="check" ${item.done ? 'checked' : ''}>
+      <span class="handle" aria-hidden="true">${sortMode === 'manual' ? '⠿' : ''}</span>
+      <input type="checkbox" class="check" aria-label="Куплено: ${escapeAttr(item.name)}" ${item.done ? 'checked' : ''}>
       <div class="info">
         <div class="name">${escapeHtml(item.name)}</div>
         <div class="prices">¥${fmt(cny)} · ₸${fmt(kzt)}</div>
       </div>
       <div class="prio ${prioClass(item.priority)}">${item.priority}</div>
-      <button class="icon-btn pin${item.pinned ? ' active' : ''}" title="Не выкидывать">📌</button>
-      <button class="icon-btn edit" title="Редактировать">✎</button>
-      <button class="icon-btn del" title="Удалить">×</button>
+      ${sortMode === 'manual' ? '<span class="move-controls"><button type="button" class="icon-btn move-up" aria-label="Переместить выше">▲</button><button type="button" class="icon-btn move-down" aria-label="Переместить ниже">▼</button></span>' : ''}
+      <button type="button" class="icon-btn pin${item.pinned ? ' active' : ''}" aria-label="${item.pinned ? 'Открепить' : 'Закрепить'}: ${escapeAttr(item.name)}" aria-pressed="${item.pinned}">📌</button>
+      <button type="button" class="icon-btn edit" aria-label="Редактировать: ${escapeAttr(item.name)}">✎</button>
+      <button type="button" class="icon-btn del" aria-label="Удалить: ${escapeAttr(item.name)}">×</button>
     `;
+
+    if (sortMode === 'manual') {
+      const up = li.querySelector('.move-up');
+      const down = li.querySelector('.move-down');
+      up.disabled = index === 0 || !sameGroup(item, sorted[index - 1]);
+      down.disabled = index === sorted.length - 1 || !sameGroup(item, sorted[index + 1]);
+      up.addEventListener('click', () => moveItem(item, sorted[index - 1]));
+      down.addEventListener('click', () => moveItem(item, sorted[index + 1]));
+    }
 
     li.querySelector('.check').addEventListener('change', () => {
       item.done = !item.done;
@@ -403,9 +451,18 @@ function render() {
       render();
     });
 
-    li.addEventListener('dragstart', () => { draggedId = item.id; });
+    li.addEventListener('dragstart', e => {
+      draggedId = item.id;
+      e.dataTransfer.setData('text/plain', String(item.id));
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    li.addEventListener('dragend', () => {
+      draggedId = null;
+      listEl.querySelectorAll('.dragover').forEach(el => el.classList.remove('dragover'));
+    });
     li.addEventListener('dragover', e => {
-      if (sortMode !== 'manual') return;
+      const source = items.find(i => i.id === draggedId);
+      if (sortMode !== 'manual' || !source || !sameGroup(source, item)) return;
       e.preventDefault();
       li.classList.add('dragover');
     });
@@ -413,12 +470,14 @@ function render() {
     li.addEventListener('drop', e => {
       e.preventDefault();
       li.classList.remove('dragover');
-      if (sortMode !== 'manual' || draggedId === null || draggedId === item.id) return;
-      const fromIdx = items.findIndex(i => i.id === draggedId);
-      const toIdx = items.findIndex(i => i.id === item.id);
-      const [moved] = items.splice(fromIdx, 1);
-      items.splice(toIdx, 0, moved);
-      items.forEach((it, idx) => { it.order = idx; });
+      const source = items.find(i => i.id === draggedId);
+      if (sortMode !== 'manual' || !source || source.id === item.id || !sameGroup(source, item)) return;
+      const group = sortedItems().filter(i => sameGroup(i, source));
+      const fromIdx = group.findIndex(i => i.id === source.id);
+      const toIdx = group.findIndex(i => i.id === item.id);
+      group.splice(fromIdx, 1);
+      group.splice(toIdx, 0, source);
+      group.forEach((it, idx) => { it.order = idx; });
       draggedId = null;
       save();
       render();
@@ -428,10 +487,32 @@ function render() {
   }
 }
 
+function sameGroup(a, b) {
+  return b && a.done === b.done && a.pinned === b.pinned;
+}
+
+function moveItem(item, neighbor) {
+  if (!sameGroup(item, neighbor)) return;
+  const group = sortedItems().filter(i => sameGroup(i, item));
+  const fromIdx = group.findIndex(i => i.id === item.id);
+  const toIdx = group.findIndex(i => i.id === neighbor.id);
+  group.splice(fromIdx, 1);
+  group.splice(toIdx, 0, item);
+  group.forEach((it, idx) => { it.order = idx; });
+  save();
+  render();
+  const moved = [...listEl.children].find(el => el.dataset.id === String(item.id));
+  moved?.querySelector(toIdx < fromIdx ? '.move-up' : '.move-down')?.focus();
+}
+
 function escapeHtml(s) {
   const d = document.createElement('div');
   d.textContent = s;
   return d.innerHTML;
+}
+
+function escapeAttr(s) {
+  return escapeHtml(s).replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
 function startEdit(id) {
@@ -444,6 +525,7 @@ function startEdit(id) {
   priorityInput.value = item.priority;
   priorityVal.textContent = item.priority;
   addBtn.textContent = 'Сохранить';
+  addBtn.setAttribute('aria-label', 'Сохранить товар');
   addForm.classList.add('editing');
   editActions.style.display = 'flex';
   nameInput.focus();
@@ -456,6 +538,7 @@ function cancelEdit() {
   priorityInput.value = 5;
   priorityVal.textContent = 5;
   addBtn.textContent = '+';
+  addBtn.setAttribute('aria-label', 'Добавить товар');
   addForm.classList.remove('editing');
   editActions.style.display = 'none';
 }
@@ -467,31 +550,35 @@ priorityInput.addEventListener('input', () => {
 });
 
 rateInput.addEventListener('change', () => {
-  const v = parseFloat(rateInput.value);
-  if (v > 0) {
+  const v = validNumber(rateInput.value);
+  if (v !== null && rateInput.validity.valid) {
     rate = v;
-    localStorage.setItem(RATE_KEY, rate);
+    writeStorage(RATE_KEY, String(rate));
     render();
+  } else {
+    rateInput.value = rate;
   }
 });
 
 sortByPriorityBtn.addEventListener('click', () => {
   sortMode = 'priority';
-  localStorage.setItem(SORT_KEY, sortMode);
+  writeStorage(SORT_KEY, sortMode);
   updateSortButtons();
   render();
 });
 sortByManualBtn.addEventListener('click', () => {
   sortMode = 'manual';
-  localStorage.setItem(SORT_KEY, sortMode);
+  writeStorage(SORT_KEY, sortMode);
   updateSortButtons();
   render();
 });
 
-addBtn.addEventListener('click', () => {
+addForm.addEventListener('submit', e => {
+  e.preventDefault();
   const name = nameInput.value.trim();
-  const price = parseFloat(priceInput.value);
-  if (!name || !(price > 0)) return;
+  const price = validNumber(priceInput.value);
+  if (!name) { nameInput.focus(); return; }
+  if (price === null || !priceInput.validity.valid) { priceInput.focus(); return; }
 
   if (editingId !== null) {
     const item = items.find(i => i.id === editingId);
@@ -522,9 +609,6 @@ addBtn.addEventListener('click', () => {
   save();
   render();
 });
-
-nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') priceInput.focus(); });
-priceInput.addEventListener('keydown', e => { if (e.key === 'Enter') addBtn.click(); });
 
 render();
 </script>
